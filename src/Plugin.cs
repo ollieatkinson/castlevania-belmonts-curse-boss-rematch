@@ -69,10 +69,27 @@ internal static class PrepareReplayDirector
     }
 }
 
-[HarmonyPatch(typeof(CutsceneDirector), nameof(CutsceneDirector.Resolve))]
+[HarmonyPatch(typeof(CutsceneResolver), nameof(CutsceneResolver.Resolve),
+    new[] { typeof(float), typeof(CutsceneDirector), typeof(bool) },
+    new[] { ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Out })]
 internal static class PauseOtherRoomScripts
 {
-    private static bool Prefix(CutsceneDirector __instance) => Session.Current?.AllowDirector(__instance) ?? true;
+    private static bool Prefix(CutsceneDirector __1, ref bool __2)
+    {
+        // UpdateDirectors inlines CutsceneDirector.Resolve and calls the
+        // resolver directly. Hook that actual call, leaving a paused graph
+        // unfinished so it can resume after loading and actor initialization.
+        if (Session.Current?.AllowDirector(__1) != false) return true;
+        __2 = false;
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(CutsceneResolver), nameof(CutsceneResolver.PreStart), new[] { typeof(CutsceneDirector) })]
+internal static class WaitForReplayIntroActors
+{
+    private static bool Prefix(CutsceneResolver __instance, CutsceneDirector __0)
+        => !(Session.Current?.DeferIntro(__instance, __0) ?? false);
 }
 
 [HarmonyPatch(typeof(MainCharacterSpawnLogic), nameof(MainCharacterSpawnLogic.Initialize))]
@@ -105,6 +122,12 @@ internal static class FightStarted
 internal static class FightCleared
 {
     private static void Postfix(BossFight __instance) => Session.Current?.OnFightCleared(__instance);
+}
+
+[HarmonyPatch(typeof(PlaceholderMCDeathFeature), nameof(PlaceholderMCDeathFeature.GameplayStateUpdate))]
+internal static class NoReplayBossRetry
+{
+    private static void Prefix(MotherBase.EntityFramework.Entity __0) => Session.Current?.OnPlayerDeath(__0);
 }
 
 [HarmonyPatch(typeof(BossFight), nameof(BossFight.OnGiveLoot))]

@@ -7,6 +7,7 @@ namespace BossRematch;
 internal sealed class ReplayGraph : IDisposable
 {
     private readonly Dictionary<int, CutsceneResolverData> clones = new();
+    private readonly List<CutsceneData> cutscenes = new();
     private int outros;
     internal CutsceneResolverData Build(CutsceneResolverData source, int branch)
     {
@@ -68,6 +69,8 @@ internal sealed class ReplayGraph : IDisposable
             if (clone.Nodes[i].Pointer == source.Nodes[i].Pointer)
                 throw new InvalidOperationException("Encounter nodes are shared with the original graph.");
 
+        if (source.name == "The_Self_Encounter") RewriteRoseRepeatIntro(source, clone);
+        if (source.name == "Notre_Dame_Sacred_Chapel_Sacred_Sword") RewriteArthurSetup(clone);
         if (source.name == "BossOutro")
         {
             RewriteOutro(clone);
@@ -90,6 +93,88 @@ internal sealed class ReplayGraph : IDisposable
                 clone.Nodes[i] = new ResolverStartNodeData { NextNodes = node.NextNodes };
         }
         return clone;
+    }
+
+    private static void RewriteArthurSetup(CutsceneResolverData graph)
+    {
+        var nodes = graph.Nodes;
+        var intro = nodes.Length == 15 ? nodes[4].TryCast<ResolverPlaySubResolverNodeData>() : null;
+        if (intro?.SubResolverData?.name != "BossIntro"
+            || nodes[2].TryCast<ResolverConditionProgressionKeyNodeData>() == null
+            || nodes[3].TryCast<ResolverTriggerCutsceneEventNodeData>() == null
+            || nodes[8].TryCast<ResolverFadeToBackNodeData>() == null
+            || !nodes[2].NextNodes.SequenceEqual(new[] { 3, 4, 8 }))
+            throw new InvalidOperationException("The Arthur encounter setup has changed.");
+        var variables = intro.VariablesContainer;
+        var fight = variables.GetVariable("1a7381d9-225e-4f6d-ab89-04964e6a9559")?.TryCast<BossFightVariable>();
+        var anchor = variables.GetVariable("b64a3f06-a8d2-4275-89de-c3110b858a5f")?.TryCast<CutsceneAnchorVariable>();
+        var direction = variables.GetVariable("f1ecd04c-fef8-4631-b891-814628d723b1")?.TryCast<SpawnLookDirectionVariable>();
+        var action = variables.GetVariable("1a70a449-6b46-42d7-88bc-068dfe91d8b2")?.TryCast<ActionTriggerVariable>();
+        if (fight == null || string.IsNullOrEmpty(fight.Value) || anchor == null || string.IsNullOrEmpty(anchor.Value)
+            || direction == null || action == null || !action.Value || action.Value.name != "Arthur_BaseMovement")
+            throw new InvalidOperationException("Arthur's authored boss setup is unavailable.");
+        // The story branch starts a window-breaking Sequence in parallel with
+        // the intro. That Sequence owns a game state and can outlive its action
+        // on an already-broken window. Replays only need the boss's native setup.
+        nodes[2] = new ResolverSetupBossNodeData
+        {
+            BossFight = new BossFightWithRefData { Value = fight.Value },
+            AnchorData = new CutsceneAnchorWithRefData { Value = anchor.Value },
+            DirectionData = new SpawnLookDirectionWithRefData { Value = direction.Value },
+            ActionData = new ActionTriggerWithRefData { Value = action.Value },
+            NextNodes = new[] { 4 }
+        };
+    }
+
+    private void RewriteRoseRepeatIntro(CutsceneResolverData source, CutsceneResolverData clone)
+    {
+        const string introId = "6fa2bd2e-1ef5-4329-bc3b-bd025f0d6eb6";
+        const string repeatId = "165c9075-defb-4b49-874b-eb606a801c9e";
+        var original = source.Nodes.Length == 8 ? source.Nodes[4].TryCast<ResolverPlaySubResolverNodeData>() : null;
+        var replay = clone.Nodes.Length == 8 ? clone.Nodes[4].TryCast<ResolverPlaySubResolverNodeData>() : null;
+        if (original?.SubResolverData?.name != "BossIntroNoTrigger" || replay == null)
+            throw new InvalidOperationException("The Cursed Rose introduction has an unsupported layout.");
+        var intro = original.VariablesContainer.GetVariable(introId)?.TryCast<CutsceneDataVariable>()?.Value;
+        var repeat = original.VariablesContainer.GetVariable(repeatId)?.TryCast<CutsceneDataVariable>();
+        var privateRepeat = replay.VariablesContainer.GetVariable(repeatId)?.TryCast<CutsceneDataVariable>();
+        if (!intro || intro!.name != "Notre_Dame_Prophecy_Self_Intro" || intro.Nodes.Length != 116
+            || repeat == null || privateRepeat == null || repeat.Pointer == privateRepeat.Pointer
+            || !repeat.Value || repeat.Value.name != "Notre_Dame_Boss_Doppelganger_Intro_Random")
+            throw new InvalidOperationException("Could not isolate the Cursed Rose repeat introduction.");
+        var arenaCamera = intro.Nodes[88].TryCast<CutsceneEnableCameraNodeData>();
+        if (arenaCamera == null || !arenaCamera.Enable || !arenaCamera.OverrideTransition
+            || arenaCamera.CameraID != "2d57bbb4-2ce1-40ed-b66a-8c893bf9580b")
+            throw new InvalidOperationException("The Cursed Rose arena camera has changed.");
+
+        var cutscene = Object.Instantiate(repeat.Value);
+        cutscenes.Add(cutscene);
+        var nodes = cutscene.Nodes;
+        if (cutscene == repeat.Value || nodes.Length != 19 || cutscene.StartIndexes.Length != 1
+            || cutscene.StartIndexes[0] != 0 || nodes[0].TryCast<CutsceneStartNodeData>() == null
+            || nodes[18].TryCast<CutsceneStopCameraBlendsData>() == null || nodes[18].NextNodes.Length != 0)
+            throw new InvalidOperationException("The Cursed Rose repeat cutscene has changed.");
+        for (var i = 0; i < nodes.Length; i++)
+            if (nodes[i].Pointer == repeat.Value.Nodes[i].Pointer)
+                throw new InvalidOperationException("Cursed Rose cutscene nodes are shared with the original.");
+
+        // The first intro enables B3, the room's combat camera. The repeat
+        // intro assumes it is still enabled after a death, but a fresh replay
+        // loads the room with B3 disabled. Enable that same authored camera
+        // under the intro's black fade, retaining native placement and music.
+        var expanded = new Il2CppReferenceArray<NodeDataBase>(nodes.Length + 1);
+        for (var i = 0; i < nodes.Length; i++) expanded[i] = nodes[i];
+        expanded[nodes.Length] = new CutsceneEnableCameraNodeData
+        {
+            CameraID = arenaCamera.CameraID,
+            Enable = arenaCamera.Enable,
+            OverrideTransition = arenaCamera.OverrideTransition,
+            Transition = arenaCamera.Transition,
+            NextNodes = Array.Empty<int>()
+        };
+        nodes[18].NextNodes = new[] { nodes.Length };
+        cutscene.Nodes = expanded;
+        privateRepeat.Value = cutscene;
+        Plugin.Logger.LogInfo("Prepared Cursed Rose repeat intro with its authored arena camera.");
     }
 
     private static void RewriteIntro(CutsceneResolverData graph)
@@ -137,5 +222,7 @@ internal sealed class ReplayGraph : IDisposable
     {
         foreach (var clone in clones.Values) if (clone) Object.Destroy(clone);
         clones.Clear();
+        foreach (var cutscene in cutscenes) if (cutscene) Object.Destroy(cutscene);
+        cutscenes.Clear();
     }
 }

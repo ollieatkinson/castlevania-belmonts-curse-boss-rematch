@@ -16,6 +16,8 @@ public sealed class ReplayUI : MonoBehaviour
     private ConfirmationPopup? popup;
     private readonly List<(UILocalizedString Label, bool Enabled, string Text, string Replacement)> labels = new();
     private static string? pendingNotice;
+    private readonly ArenaTravelGate noticeGate = new();
+    internal static bool PopupBusy => Instance != null && Instance.confirmationOpen;
 
     public ReplayUI(IntPtr pointer) : base(pointer) { }
 
@@ -23,6 +25,7 @@ public sealed class ReplayUI : MonoBehaviour
     internal static void Notice(string text)
     {
         pendingNotice = text;
+        Instance?.noticeGate.Reset();
         Plugin.Logger.LogWarning(text);
     }
 
@@ -35,6 +38,7 @@ public sealed class ReplayUI : MonoBehaviour
             RefreshPopup();
             if (ApplicationLoading())
             {
+                noticeGate.Reset();
                 DestroyEcho();
                 return;
             }
@@ -56,8 +60,8 @@ public sealed class ReplayUI : MonoBehaviour
             }
             Session.Tick();
             ArenaTravel.Tick();
-            if (ApplicationLoading()) { DestroyEcho(); return; }
-            if (!MainCharacterSingleton.TryGetEntity(out var player) || !player) { DestroyEcho(); return; }
+            if (ApplicationLoading()) { noticeGate.Reset(); DestroyEcho(); return; }
+            if (!MainCharacterSingleton.TryGetEntity(out var player) || !player) { noticeGate.Reset(); DestroyEcho(); return; }
             var room = MainCharacterSingleton.GetComponent<CurrentRoomInstance>()?.currentRoom;
             if (echoes.Any(e => !room || !e.Alive || room!.GetInstanceID() != e.RoomInstanceId)) DestroyEcho();
             if (Time.realtimeSinceStartup >= nextScan)
@@ -67,22 +71,30 @@ public sealed class ReplayUI : MonoBehaviour
             }
             foreach (var echo in echoes)
                 echo.SetAvailable(!ArenaTravel.Busy && Session.Pending == null && !confirmationOpen && confirmed == null && confirmedReturn == null && Session.IsGameplay());
+            // A timeout requests a return before loading starts. Opening its
+            // notice immediately can leave a popup and its UI controls alive
+            // across the level reload. Wait until the replay has fully ended.
+            var noticeReady = noticeGate.CanStart(pendingNotice != null && !confirmationOpen
+                && Session.Current == null && Session.Pending == null && !ArenaTravel.Busy
+                && confirmed == null && confirmedReturn == null && talkRequest == null && Session.IsGameplay(),
+                Time.realtimeSinceStartup, Time.frameCount);
             if (!confirmationOpen && Session.IsGameplay())
             {
                 var talk = talkRequest;
                 talkRequest = null;
                 if (talk != null && echoes.Contains(talk) && talk.Alive) Talk(talk);
-                else if (pendingNotice != null)
+                else if (noticeReady && pendingNotice != null)
                 {
                     var text = pendingNotice;
-                    pendingNotice = null;
-                    OpenPopup("Echo", text, "Continue", () => { });
+                    if (OpenPopup("Echo", text, "Continue", () => { })) pendingNotice = null;
+                    noticeGate.Reset();
                 }
             }
         }
         catch (Exception e)
         {
             nextScan = Time.realtimeSinceStartup + 5;
+            noticeGate.Reset();
             DestroyEcho();
             Plugin.Logger.LogError($"Boss Rematch: {e}");
         }
@@ -159,10 +171,10 @@ public sealed class ReplayUI : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    private void OpenPopup(string title, string message, string accept, Action onConfirm)
+    private bool OpenPopup(string title, string message, string accept, Action onConfirm)
     {
         var ui = UIManager.GetInstance();
-        if (confirmationOpen || !ui || !ui.confirmationPopup || ui.confirmationPopup.visible || !ui.fastTravelMenuManager) return;
+        if (confirmationOpen || !ui || !ui.confirmationPopup || ui.confirmationPopup.visible || !ui.fastTravelMenuManager) return false;
         RestorePopup();
         confirmationOpen = true;
         try
@@ -181,6 +193,7 @@ public sealed class ReplayUI : MonoBehaviour
             Replace(popup.confirmLabel, accept);
             Replace(popup.cancelLabel, "Not now");
             RefreshPopup();
+            return true;
         }
         catch
         {

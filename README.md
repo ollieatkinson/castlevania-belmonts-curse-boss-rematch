@@ -22,7 +22,7 @@ You must have defeated the boss and absorbed its Arcana. Speak to the Echo in it
 
 ![Isaac’s Echo offers Relive the battle or Not now](docs/screenshots/rematch.png)
 
-Supports **Jeanne d’Arc, Leon, Medusa, Mammon, Cursed Rose (Doppelganger), Arthur, Carmilla, Talos, Isaac and Agnes**. Dracula and Saint Louis’s original encounter are not included.
+Supports **Jeanne d’Arc, Leon, Medusa, Mammon, Cursed Rose (Doppelganger), Arthur, Carmilla, Talos, Isaac and Agnes**. Death, Dracula and Saint Louis’s original encounter are not included.
 
 ### Notre-Dame challenges
 
@@ -56,9 +56,9 @@ Set either option to `false` to disable it, then restart the game. Mirror Fast T
 
 ## Progress and compatibility
 
-The mod saves a checkpoint before a rematch. Repeat boss rewards and story progression are suppressed, and saving is paused during the fight. Winning reloads that checkpoint at your arena position, restoring health, resources and temporary pickups. Death or another level transition ends the replay and uses the game’s normal destination.
+The mod saves a checkpoint before a rematch. Repeat boss rewards and story progression are suppressed, and saving is paused during the fight. Winning reloads that checkpoint at your arena position, restoring health, resources and temporary pickups. Dying ends the replay and uses normal checkpoint respawning; the native boss-retry prompt is suppressed. Another level transition also ends the replay and uses the game’s normal destination.
 
-Leon’s intro, camera, fight, victory and return to the cleared arena have been checked in game. Isaac’s spawn and fight start have also been checked alongside Ultrawide, Map Secrets and Mirror Fast Travel. Notre-Dame hall travel, spirit prompts and Temperance’s course entry and return have also been checked. Other encounters still need playtesting. Back up your save before using the mod.
+Leon’s full rematch, Isaac’s spawn and fight start, and Arthur’s fight start have been checked in game. Medusa and Cursed Rose have also been checked through victory and checkpoint return with the 0.4.4 fixes. Notre-Dame hall travel, spirit prompts and Temperance’s course entry and return have been checked alongside Ultrawide, Map Secrets and Mirror Fast Travel. Other encounters and death respawning still need playtesting. Back up your save before using the mod.
 
 Last verified on Steam build **25975867 / game version 1.1.3**. A different game version or DLL hash logs a warning and attempts to load. If required hooks cannot be installed, the mod disables itself. An unsupported encounter graph disables that replay and restores the checkpoint if one has already started. These checks cannot detect every possible game change. If something fails, include `BepInEx/LogOutput.log` when reporting it.
 

@@ -20,6 +20,7 @@ internal sealed class Session
     private readonly LevelID level;
     private readonly int slot;
     private readonly ReplayGraph graph = new();
+    private readonly ReplayPortal portal = new();
     private bool ownsForcePosition;
     private bool expectedLoad;
     private bool returnRequested;
@@ -28,11 +29,15 @@ internal sealed class Session
     private readonly ArenaTravelGate returnGate = new();
     private bool graphPrepared;
     private bool started;
+    private bool deathHandled;
     private bool trialHallReady;
     private bool trialDoorEntered;
     private bool trialArrived;
     private bool trialCompleted;
     private readonly ArenaTravelGate trialGate = new();
+    private readonly ArenaTravelGate introGate = new();
+    private bool introReady;
+    private CutsceneResolver? deferredIntro;
     private BossFight? awaitingFight;
     private float startDeadline;
     internal CutsceneDirector? Director;
@@ -171,6 +176,7 @@ internal sealed class Session
             // override that transition's destination or native retry location.
             State.Return();
             ClearForcePosition();
+            portal.ReleaseCover();
             Plugin.Logger.LogInfo("Rematch interrupted by an external load.");
         }
     }
@@ -245,7 +251,42 @@ internal sealed class Session
         var room = director.GetComponentInParent<RoomInstance>();
         if (!room) return true;
         if (Target.Trial != null && room.worldRoomData.id == NotreDameTrials.Hall) return false;
-        return room.worldRoomData.id != Target.FightRoomId || (Director && director == Director);
+        if (room.worldRoomData.id != Target.FightRoomId) return true;
+        if (!Director || director != Director) return false;
+        // A started graph must still run BossOutro's balanced state pop after
+        // ClearBossFight requests the return. Entry failures stay suspended.
+        if (returnRequested && !introReady) return false;
+        if (!introReady && NeedsEntryGate)
+        {
+            // Room streaming finishes before the portal's exit action. Don't
+            // let the intro interrupt that action and overlap its feedback.
+            var player = MainCharacterSingleton.GetEntity();
+            var ready = !RoomManager.RoomManagerSystem.IsLoadingNextRoom && IsGameplay()
+                && !player.HasComponentData<EnteredZDoor>() && !player.HasComponentData<ExitedAtZDoor>();
+            var fights = room.GetComponentsInChildren<BossFight>(true);
+            ready &= fights.Length == 1 && fights[0]._currentBossVariable
+                && fights[0]._currentBossVariable.CurrentValue;
+            if (!introGate.CanStart(ready, Time.realtimeSinceStartup, Time.frameCount)) return false;
+            introReady = true;
+            var pendingIntro = deferredIntro;
+            deferredIntro = null;
+            try { pendingIntro?.PreStart(director); }
+            catch (Exception error) { introReady = false; FailEncounter(error); return false; }
+            Plugin.Logger.LogInfo($"Replay entry settled; starting {Target.Label}'s intro.");
+        }
+        return true;
+    }
+
+    private bool NeedsEntryGate => Target.Trial == null || Target.Trial.IsBoss || Target.Trial.DoorId == 300;
+
+    internal bool DeferIntro(CutsceneResolver resolver, CutsceneDirector director)
+    {
+        if (!State.CanVirtualize || !NeedsEntryGate || introReady || Director != director
+            || director._resolver?.Pointer != resolver.Pointer) return false;
+        // PreStart recursively creates cutscene players and binds their actors,
+        // before the first Resolve call. Deferring Resolve alone is too late.
+        deferredIntro = resolver;
+        return true;
     }
 
     internal bool Owns(BossFight fight)
@@ -264,7 +305,10 @@ internal sealed class Session
             || spawner.mobsToSpawn == null || spawner.mobsToSpawn.Count == 0) return false;
         var boss = spawner.mobsToSpawn.Count == 1 ? spawner.mobsToSpawn[0].mobData?.TryCast<BossData>() : null;
         var matchingBoss = boss && boss!.characterID && boss.characterID.guid == Target.CharacterGuid;
-        if ((!matchingBoss && Target.Trial == null) || !State.TryPrepareSpawner(spawner.GetInstanceID())) return false;
+        var medusaHeads = Target.ResolverName == "Medusa_Arena"
+            && spawner.name is "MedusaHeadSpawner_Left" or "MedusaHeadSpawner_Right";
+        if ((!matchingBoss && !medusaHeads && Target.Trial == null)
+            || !State.TryPrepareSpawner(spawner.GetInstanceID())) return false;
         if (matchingBoss && boss!.defeatedProgressionKey) State.Keys[boss.defeatedProgressionKey.guid] = false;
         // The native initializer restores only surviving mobs when HasSpawned
         // is set. A completed save therefore restores no boss. A full reset
@@ -292,6 +336,7 @@ internal sealed class Session
         }
         awaitingFight = null;
         started = true;
+        portal.ReleaseCover();
         Plugin.Logger.LogInfo($"Rematch started: {Target.Label}.");
     }
 
@@ -302,9 +347,23 @@ internal sealed class Session
         RequestReturn();
     }
 
+    internal void OnPlayerDeath(MotherBase.EntityFramework.Entity player)
+    {
+        if (deathHandled || !State.CanVirtualize || player != MainCharacterSingleton.GetEntity()) return;
+        deathHandled = true;
+        // Native boss retry reloads an arena assuming its boss is undefeated.
+        // The real save is already cleared, so use the normal checkpoint death
+        // path instead. Keep the write barrier until that reload has finished.
+        if (player.TryGetComponentData<BossFight.BossRetryData>(out var retry) && retry)
+            retry.isFightingBoss = false;
+        MainCharacterSpawnLogic.Get().EraseBossRetry();
+        Plugin.Logger.LogInfo("Replay death: using normal checkpoint respawn; native boss retry suppressed.");
+    }
+
     internal void RequestReturn()
     {
         if (returnRequested) return;
+        portal.ReleaseCover();
         returnRequested = true;
         returnPrepared = false;
         closingReturnMenu = false;
@@ -333,7 +392,10 @@ internal sealed class Session
             if (!graphPrepared || !trialGate.CanStart(IsGameplay(), Time.realtimeSinceStartup, Time.frameCount)) return;
             trialArrived = true;
             State.Arrived();
-            started = Target.Trial!.DoorId != 300 && !Target.Trial.IsBoss;
+            // Native boss intros can finish before this settled-arrival gate.
+            // Preserve OnFightStarted's result: resetting it here makes a real
+            // fight hit the 45-second missing-boss timeout (Rose and Joan).
+            if (Target.Trial!.DoorId != 300 && !Target.Trial.IsBoss) started = true;
             startDeadline = Time.realtimeSinceStartup + 45;
             Plugin.Logger.LogInfo($"Challenge loaded: {Target.Label}; room={Target.FightRoomId}.");
             return;
@@ -343,6 +405,11 @@ internal sealed class Session
         if (!NotreDameTrials.Equipped(Target with { Room = room })) { RequestReturn(); return; }
         var door = NotreDameTrials.Door(room, Target.Trial!);
         if (!door) { RequestReturn(); return; }
+        if (Target.Trial!.CharacterGuid == NotreDameTrials.CursedRose)
+        {
+            try { portal.Prepare(door!); }
+            catch (Exception error) { FailEncounter(error); return; }
+        }
         trialDoorEntered = true;
         trialGate.Reset();
         door!.OnPlayerInteract(MainCharacterSingleton.GetEntity());
@@ -383,7 +450,7 @@ internal sealed class Session
         }
         closingReturnMenu = false;
         var player = MainCharacterSingleton.GetEntity();
-        var ready = (!ui.confirmationPopup || !ui.confirmationPopup.visible)
+        var ready = !ReplayUI.PopupBusy && (!ui.confirmationPopup || !ui.confirmationPopup.visible)
             && !player.HasComponentData<EnteredZDoor>();
         if (!returnPrepared)
         {
@@ -430,6 +497,7 @@ internal sealed class Session
         ClearForcePosition();
         Current = null;
         graph.Dispose();
+        portal.Dispose();
         Plugin.Logger.LogInfo("Rematch session closed; normal saving restored.");
     }
 }
