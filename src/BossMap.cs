@@ -18,7 +18,7 @@ internal static class BossMap
             return item.linkedCharacter.guid == NotreDameTrials.CursedRose && NotreDameTrials.CanTravel;
         // The hall's existing portrait is the one shared destination for the
         // four trials and Cursed Rose, outside their isolated challenge rooms.
-        if (!Encounters.Supported.ContainsKey(item.itemWorldRoomId)
+        if (!Encounters.Supported.ContainsKey(item.itemWorldRoomId) || Encounters.IsDisabled(item.itemWorldRoomId)
             || item.itemWorldRoomId == NotreDameTrials.Supported[^1].RoomId) return false;
         var progression = MainCharacterSingleton.GetComponent<CharacterProgressionComponent>();
         return progression && progression.GetProgressionStep(item.linkedCharacter) == CharacterProgressionStep.Absorbed
@@ -55,7 +55,7 @@ internal static class BossMap
             || !WasVisited(destination.RoomId)) return false;
         if (destination.RoomId == NotreDameTrials.Hall)
             return destination.CharacterGuid == NotreDameTrials.CursedRose && NotreDameTrials.CanTravel;
-        if (!Encounters.Supported.ContainsKey(destination.RoomId)) return false;
+        if (!Encounters.Supported.ContainsKey(destination.RoomId) || Encounters.IsDisabled(destination.RoomId)) return false;
         var progression = MainCharacterSingleton.GetComponent<CharacterProgressionComponent>();
         if (!progression) return false;
         foreach (var pair in progression.characterProgressionSteps)

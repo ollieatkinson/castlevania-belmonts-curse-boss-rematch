@@ -39,6 +39,21 @@ internal sealed class ReplayGraph : IDisposable
         return clone;
     }
 
+    internal static void ValidateCourse(CutsceneResolverData source)
+    {
+        var nodes = source.Nodes;
+        if (nodes.Length != 3 || source.StartIndexes.Length != 1 || source.StartIndexes[0] != 0
+            || nodes[0].TryCast<ResolverStartNodeData>() == null
+            || nodes[1].TryCast<ResolverConditionHasWatchedCutsceneNodeData>() == null
+            || nodes[2].TryCast<ResolverPlayCutsceneNodeData>() == null
+            || nodes[0].NextNodes.Length != 1 || nodes[0].NextNodes[0] != 1
+            || nodes[1].NextNodes.Length != 0 || nodes[2].NextNodes.Length != 0)
+            throw new InvalidOperationException("The course introduction has an unsupported layout.");
+        var condition = nodes[1].Cast<ResolverConditionHasWatchedCutsceneNodeData>();
+        if (condition.ElseNodes.Length != 1 || condition.ElseNodes[0] != 2)
+            throw new InvalidOperationException("The course introduction has an unsupported branch.");
+    }
+
     private CutsceneResolverData Clone(CutsceneResolverData source, int depth)
     {
         if (depth > 16) throw new InvalidOperationException("Encounter graph nesting exceeds the supported limit.");

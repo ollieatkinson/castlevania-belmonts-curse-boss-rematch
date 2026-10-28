@@ -14,6 +14,14 @@ internal sealed record Encounter(string RoomId, string Label, string ResolverNam
 
 internal static class Encounters
 {
+    private static readonly HashSet<string> disabled = new(StringComparer.Ordinal);
+    internal static bool IsDisabled(string key) => disabled.Contains(key);
+    internal static void Disable(Encounter target, Exception error)
+    {
+        if (disabled.Add(target.Key))
+            Plugin.Logger.LogWarning($"Disabled incompatible encounter for this game session: {target.Label}. {error.Message}");
+    }
+
     // Authored encounter graphs inspected on Steam build 25975867. Endings and
     // non-combat "FakeBossFight" scenes have different lifecycles.
     internal static readonly Dictionary<string, (string Label, string Resolver)> Supported = new()
@@ -33,8 +41,9 @@ internal static class Encounters
     internal static IEnumerable<Encounter> FindAll(bool requireGameplay = true)
     {
         var boss = FindBoss(requireGameplay);
-        if (boss != null) yield return boss;
-        foreach (var trial in NotreDameTrials.Find(requireGameplay)) yield return trial;
+        if (boss != null && !IsDisabled(boss.Key)) yield return boss;
+        foreach (var trial in NotreDameTrials.Find(requireGameplay))
+            if (!IsDisabled(trial.Key)) yield return trial;
     }
 
     internal static Encounter? Find(bool requireGameplay = true, string? key = null)

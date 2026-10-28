@@ -21,15 +21,7 @@ public sealed class Plugin : BasePlugin
         Logger = Log;
         ShowBossIcons = Config.Bind("Map", "ShowBossIcons", true, "Show selectable boss portraits in visited arenas after defeating the boss. Restart after changing.");
         ArenaFastTravel = Config.Bind("Map", "FastTravelToArenas", true, "Allow travel to defeated boss arenas using the map and normal interact button. Arriving does not start a rematch.");
-        using var file = File.OpenRead(Path.Combine(Paths.GameRootPath, "GameAssembly.dll"));
-        using var sha256 = SHA256.Create();
-        var hash = Convert.ToHexString(sha256.ComputeHash(file));
-        Log.LogInfo($"Boss Rematch {BuildInfo.Version}; GameAssembly SHA-256: {hash}.");
-        if (!hash.Equals(BuildCompatibility.GameAssemblySha256, StringComparison.OrdinalIgnoreCase))
-        {
-            Log.LogError("This game build is not supported. No hooks installed.");
-            return;
-        }
+        LogBuildDiagnostics();
         var harmony = new Harmony(Id);
         try
         {
@@ -46,6 +38,21 @@ public sealed class Plugin : BasePlugin
             Log.LogError($"Boss Rematch could not install its required hooks; disabled. {e}");
         }
     }
+
+    private void LogBuildDiagnostics()
+    {
+        try
+        {
+            Log.LogInfo($"Boss Rematch {BuildInfo.Version}; game version: {UnityEngine.Application.version}.");
+            using var file = File.OpenRead(Path.Combine(Paths.GameRootPath, "GameAssembly.dll"));
+            using var sha256 = SHA256.Create();
+            var hash = Convert.ToHexString(sha256.ComputeHash(file));
+            Log.LogInfo($"GameAssembly SHA-256: {hash}.");
+            if (!hash.Equals(BuildCompatibility.ReferenceGameAssemblySha256, StringComparison.OrdinalIgnoreCase))
+                Log.LogWarning("GameAssembly differs from the last verified build. Continuing with required hook checks and encounter-layout validation; include this log when reporting compatibility problems.");
+        }
+        catch (Exception e) { Log.LogWarning($"Could not read build diagnostics; continuing with required hook checks: {e.Message}"); }
+    }
 }
 
 [HarmonyPatch(typeof(CutsceneDirector), nameof(CutsceneDirector.CreateResolver))]
@@ -57,7 +64,7 @@ internal static class PrepareReplayDirector
         catch (Exception e)
         {
             Plugin.Logger.LogError($"Could not prepare replay graph: {e}");
-            Session.Current?.RequestReturn();
+            Session.Current?.FailEncounter(e);
         }
     }
 }

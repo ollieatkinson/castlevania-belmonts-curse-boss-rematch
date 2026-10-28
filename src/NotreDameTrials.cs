@@ -45,7 +45,8 @@ internal static class NotreDameTrials
         return false;
     }
 
-    internal static bool CanTravel => BossMap.WasVisited(Hall) && Supported.Any(Completed);
+    internal static bool CanTravel => BossMap.WasVisited(Hall)
+        && Supported.Any(s => Completed(s) && !Encounters.IsDisabled($"trial:{s.RoomId}"));
 
     internal static GPE_VirtuousZDoorEnter? Door(RoomInstance room, TrialSpec spec)
     {

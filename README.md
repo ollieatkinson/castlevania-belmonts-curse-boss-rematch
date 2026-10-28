@@ -60,7 +60,7 @@ The mod saves a checkpoint before a rematch. Repeat boss rewards and story progr
 
 Leon’s intro, camera, fight, victory and return to the cleared arena have been checked in game. Isaac’s spawn and fight start have also been checked alongside Ultrawide, Map Secrets and Mirror Fast Travel. Notre-Dame hall travel, spirit prompts and Temperance’s course entry and return have also been checked. Other encounters still need playtesting. Back up your save before using the mod.
 
-Supports Steam build **25975867 / game version 1.1.3**. Other game binaries disable the mod at startup. If something fails, include `BepInEx/LogOutput.log` when reporting it.
+Last verified on Steam build **25975867 / game version 1.1.3**. A different game version or DLL hash logs a warning and attempts to load. If required hooks cannot be installed, the mod disables itself. An unsupported encounter graph disables that replay and restores the checkpoint if one has already started. These checks cannot detect every possible game change. If something fails, include `BepInEx/LogOutput.log` when reporting it.
 
 ## Build
 

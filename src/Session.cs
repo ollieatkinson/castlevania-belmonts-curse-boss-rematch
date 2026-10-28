@@ -66,7 +66,15 @@ internal sealed class Session
         var current = Encounters.Find(key: target.Key);
         if (current == null || !NotreDameTrials.Equipped(current)) return;
         if (current.Trial == null)
-            using (var validation = new ReplayGraph()) validation.Build(current.Director!.ResolverData, current.Branch);
+        {
+            try { using var validation = new ReplayGraph(); validation.Build(current.Director!.ResolverData, current.Branch); }
+            catch (Exception e)
+            {
+                Encounters.Disable(current, e);
+                ReplayUI.Notice("This encounter is incompatible with the current game build and has been disabled.");
+                return;
+            }
+        }
         Pending = current;
         checkpointWritten = false;
         pendingSaveName = SaveLogic.FormatSaveNameFromIndex(SaveLogic.Get().GetCurrentSaveIndex());
@@ -202,11 +210,11 @@ internal sealed class Session
         var room = director.GetComponentInParent<RoomInstance>();
         if (!room || room.worldRoomData.id != Target.FightRoomId) return;
         if (graphPrepared) throw new InvalidOperationException("The replay director was initialized twice.");
-        Director = director;
         var branch = Target.Branch;
         if (Target.Trial is { IsBoss: false })
         {
             if (Target.Trial.DoorId == 300) director.ResolverData = graph.BuildStrengthTrial(director.ResolverData);
+            else ReplayGraph.ValidateCourse(director.ResolverData);
             // The other courses only have an optional introductory line. Their
             // mechanics, cameras, restrictions and validation stay native.
         }
@@ -224,6 +232,9 @@ internal sealed class Session
             branch = Encounters.FindBranch(director.ResolverData, boss.characterID);
             director.ResolverData = graph.Build(director.ResolverData, branch);
         }
+        // Only a fully validated director may resolve. On failure the original
+        // story graph must remain blocked while the checkpoint is restored.
+        Director = director;
         graphPrepared = true;
         Plugin.Logger.LogInfo($"Created private replay graph: {Target.ResolverName}, branch={branch}.");
     }
@@ -298,6 +309,13 @@ internal sealed class Session
         returnPrepared = false;
         closingReturnMenu = false;
         returnGate.Reset();
+    }
+
+    internal void FailEncounter(Exception error)
+    {
+        Encounters.Disable(Target, error);
+        ReplayUI.Notice("This encounter is incompatible with the current game build. Returning to the checkpoint.");
+        RequestReturn();
     }
 
     private void TickTrialEntry()
