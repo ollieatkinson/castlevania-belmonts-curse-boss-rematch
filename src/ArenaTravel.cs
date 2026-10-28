@@ -105,9 +105,14 @@ internal static class ArenaTravel
         if (handle.worldRoomData.id != loading.RoomId || !handle.roomInstance)
             throw new InvalidOperationException("The loaded arena does not match the chosen destination.");
         Vector3? anchor = null;
-        foreach (var director in handle.roomInstance.GetComponentsInChildren<CutsceneDirector>(true))
-            if (director.ResolverData?.name == Encounters.Supported[loading.RoomId].Resolver
-                && ReplayEcho.TryFindPosition(director, out var point)) { anchor = point; break; }
+        if (loading.RoomId == NotreDameTrials.Hall)
+        {
+            if (NotreDameTrials.TryTravelAnchor(handle.roomInstance, out var point)) anchor = point;
+        }
+        else
+            foreach (var director in handle.roomInstance.GetComponentsInChildren<CutsceneDirector>(true))
+                if (director.ResolverData?.name == Encounters.Supported[loading.RoomId].Resolver
+                    && ReplayEcho.TryFindPosition(director, out var point)) { anchor = point; break; }
         if (anchor == null) throw new InvalidOperationException("The arena's safe Echo anchor is unavailable.");
         var player = MainCharacterSingleton.GetEntity();
         var motor = MainCharacterSingleton.GetComponent<CharacterMotor>();

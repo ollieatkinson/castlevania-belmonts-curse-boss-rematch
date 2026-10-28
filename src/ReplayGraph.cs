@@ -20,6 +20,25 @@ internal sealed class ReplayGraph : IDisposable
         return graph;
     }
 
+    internal CutsceneResolverData BuildStrengthTrial(CutsceneResolverData source)
+    {
+        var clone = Clone(source, 0);
+        var nodes = clone.Nodes;
+        if (source.name != "Strenght_Challenge" || nodes.Length != 20
+            || nodes[0].TryCast<ResolverStartNodeData>() == null
+            || nodes[5].TryCast<ResolverConditionHasWatchedCutsceneNodeData>() == null
+            || nodes[7].TryCast<ResolverStartBossFightNodeData>() == null
+            || nodes[8].TryCast<ResolverWaitForProgressionKeyNodeData>() == null
+            || nodes[9].TryCast<ResolverEndBossFightNodeData>() == null
+            || nodes[14].TryCast<ResolverClearBossFightNodeData>() == null)
+            throw new InvalidOperationException("The Strength trial layout differs from the audited game build.");
+        // Start at the authored repeat intro, bypassing the completed-virtue
+        // check and entrance crossing. End/Clear skip the reward bell and quest.
+        nodes[0].NextNodes = new[] { 5 };
+        nodes[9].NextNodes = new[] { 14 };
+        return clone;
+    }
+
     private CutsceneResolverData Clone(CutsceneResolverData source, int depth)
     {
         if (depth > 16) throw new InvalidOperationException("Encounter graph nesting exceeds the supported limit.");

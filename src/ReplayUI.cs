@@ -7,7 +7,7 @@ namespace BossRematch;
 public sealed class ReplayUI : MonoBehaviour
 {
     internal static ReplayUI? Instance;
-    private ReplayEcho? echo;
+    private readonly List<ReplayEcho> echoes = new();
     private ReplayEcho? talkRequest;
     private float nextScan;
     private bool confirmationOpen;
@@ -59,18 +59,19 @@ public sealed class ReplayUI : MonoBehaviour
             if (ApplicationLoading()) { DestroyEcho(); return; }
             if (!MainCharacterSingleton.TryGetEntity(out var player) || !player) { DestroyEcho(); return; }
             var room = MainCharacterSingleton.GetComponent<CurrentRoomInstance>()?.currentRoom;
-            if (echo != null && (!room || !echo.Alive || room!.GetInstanceID() != echo.RoomInstanceId)) DestroyEcho();
+            if (echoes.Any(e => !room || !e.Alive || room!.GetInstanceID() != e.RoomInstanceId)) DestroyEcho();
             if (Time.realtimeSinceStartup >= nextScan)
             {
                 nextScan = Time.realtimeSinceStartup + 0.5f;
                 RefreshEcho();
             }
-            echo?.SetAvailable(!ArenaTravel.Busy && Session.Pending == null && !confirmationOpen && confirmed == null && confirmedReturn == null && Session.IsGameplay());
+            foreach (var echo in echoes)
+                echo.SetAvailable(!ArenaTravel.Busy && Session.Pending == null && !confirmationOpen && confirmed == null && confirmedReturn == null && Session.IsGameplay());
             if (!confirmationOpen && Session.IsGameplay())
             {
                 var talk = talkRequest;
                 talkRequest = null;
-                if (talk != null && ReferenceEquals(talk, echo) && talk.Alive) Talk(talk);
+                if (talk != null && echoes.Contains(talk) && talk.Alive) Talk(talk);
                 else if (pendingNotice != null)
                 {
                     var text = pendingNotice;
@@ -98,12 +99,13 @@ public sealed class ReplayUI : MonoBehaviour
         // Keep the arena clear throughout the intro and fight. Only a failed
         // return may need an Echo while a session still exists, to retry leaving.
         if (!room || (active != null && active.State.Phase != ReplayState.Stage.Returning)) { DestroyEcho(); return; }
-        var target = active?.Target ?? Encounters.Find(requireGameplay: false);
-        if (target == null || room!.worldRoomData.id != target.RoomId) { DestroyEcho(); return; }
         var isReturn = active != null;
-        if (echo != null && echo.Alive && echo.RoomInstanceId == room.GetInstanceID() && echo.IsReturn == isReturn) return;
+        var targets = active != null ? new[] { active.Target } : Encounters.FindAll(requireGameplay: false).ToArray();
+        targets = targets.Where(t => t.RoomId == room!.worldRoomData.id).ToArray();
+        if (targets.Length == echoes.Count && targets.All(t => echoes.Any(e => e.Alive
+            && e.RoomInstanceId == room!.GetInstanceID() && e.IsReturn == isReturn && e.Target.Key == t.Key))) return;
         DestroyEcho();
-        echo = new ReplayEcho(target, room, isReturn, QueueEchoTalk);
+        foreach (var target in targets) echoes.Add(new ReplayEcho(target, room!, isReturn, QueueEchoTalk));
     }
 
     [HideFromIl2Cpp]
@@ -119,7 +121,9 @@ public sealed class ReplayUI : MonoBehaviour
     {
         var ui = UIManager.GetInstance();
         if (confirmationOpen || !ui || !ui.TryGetMenuManager(out var menu) || !menu) return false;
-        OpenPopup($"{destination.Label} — Arena", "Travel to the Echo in this arena?", "Travel", () =>
+        OpenPopup(destination.Label, destination.RoomId == NotreDameTrials.Hall
+            ? "Travel to the Notre-Dame challenge hall? Speak to a spirit beside a completed portal to replay it."
+            : "Travel to the Echo in this arena?", "Travel", () =>
         {
             if (ArenaTravel.Queue(destination)) menu.Close();
         });
@@ -138,9 +142,18 @@ public sealed class ReplayUI : MonoBehaviour
         }
         else
         {
-            var target = Encounters.Find();
-            if (target == null || target.RoomId != speaker.Target.RoomId) return;
-            OpenPopup($"Echo of {target.Label}", "This place remembers our battle.\nWill you face me once more?", "Relive the battle",
+            var target = Encounters.Find(key: speaker.Target.Key);
+            if (target == null) return;
+            if (!NotreDameTrials.Equipped(target))
+            {
+                OpenPopup(target.Label, "Equip this portal’s Arcana before reliving its challenge.", "Continue", () => { });
+                return;
+            }
+            var isTrial = target.Trial is { IsBoss: false };
+            OpenPopup($"Echo of {target.Label}", isTrial
+                    ? "Will you face this challenge once more?\nYour completed trial and its reward will be preserved."
+                    : "This place remembers our battle.\nWill you face me once more?",
+                isTrial ? "Relive the challenge" : "Relive the battle",
                 () => confirmed = target);
         }
     }
@@ -217,8 +230,8 @@ public sealed class ReplayUI : MonoBehaviour
     private void DestroyEcho()
     {
         talkRequest = null;
-        echo?.Dispose();
-        echo = null;
+        foreach (var echo in echoes) echo.Dispose();
+        echoes.Clear();
     }
 
     public void OnDestroy()

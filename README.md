@@ -22,7 +22,19 @@ You must have defeated the boss and absorbed its Arcana. Speak to the Echo in it
 
 ![Isaac’s Echo offers Relive the battle or Not now](docs/screenshots/rematch.png)
 
-Supports **Jeanne d’Arc, Leon, Medusa, Mammon, Doppelganger, Arthur, Carmilla, Talos, Isaac and Agnes**. Dracula and Saint Louis are not included.
+Supports **Jeanne d’Arc, Leon, Medusa, Mammon, Cursed Rose (Doppelganger), Arthur, Carmilla, Talos, Isaac and Agnes**. Dracula and Saint Louis’s original encounter are not included.
+
+### Notre-Dame challenges
+
+Replay **Justice, Temperance, Prudence and Strength**, including the platforming courses and Joan of Arc’s trial rematch. Spirits appear beside the portals in the challenge hall after you have completed their trials. Equip the portal’s required Arcana, speak to its spirit and choose **Relive the challenge**. Cursed Rose has a spirit beside the central portal after you have defeated her.
+
+![Temperance’s Echo offers to relive the completed challenge](docs/screenshots/trial-rematch.png)
+
+![The portal’s Arcana must be equipped before starting its replay](docs/screenshots/arcana-required.png)
+
+The hall has **one shared travel destination** for all five encounters. Select its portrait on the Notre-Dame map and choose **Travel to challenge hall**. You arrive outside the courses. Spirits stand to the side of the portals and disappear during a replay. Completing a trial, or taking its exit, returns you to your checkpoint in the hall; completed virtues and rewards are preserved.
+
+![Cursed Rose’s Echo offers a rematch beside the central portal](docs/screenshots/cursed-rose.png)
 
 ## Arena travel
 
@@ -46,7 +58,7 @@ Set either option to `false` to disable it, then restart the game. Mirror Fast T
 
 The mod saves a checkpoint before a rematch. Repeat boss rewards and story progression are suppressed, and saving is paused during the fight. Winning reloads that checkpoint at your arena position, restoring health, resources and temporary pickups. Death or another level transition ends the replay and uses the game’s normal destination.
 
-Leon’s intro, camera, fight, victory and return to the cleared arena have been checked in game. Isaac’s spawn and fight start have also been checked alongside Ultrawide, Map Secrets and Mirror Fast Travel. Other bosses still need playtesting. Back up your save before using the mod.
+Leon’s intro, camera, fight, victory and return to the cleared arena have been checked in game. Isaac’s spawn and fight start have also been checked alongside Ultrawide, Map Secrets and Mirror Fast Travel. Notre-Dame hall travel, spirit prompts and Temperance’s course entry and return have also been checked. Other encounters still need playtesting. Back up your save before using the mod.
 
 Supports Steam build **25975867 / game version 1.1.3**. Other game binaries disable the mod at startup. If something fails, include `BepInEx/LogOutput.log` when reporting it.
 

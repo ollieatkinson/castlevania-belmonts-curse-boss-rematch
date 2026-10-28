@@ -7,6 +7,7 @@ internal sealed class ReplayState
     internal Stage Phase { get; private set; } = Stage.Entering;
     internal readonly Dictionary<string, bool> Keys = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, int> Characters = new(StringComparer.Ordinal);
+    internal readonly Dictionary<string, bool> Virtues = new(StringComparer.Ordinal);
     private readonly HashSet<int> resetSpawners = new();
     private int saveReadDepth;
     internal bool TryPrepareSpawner(int id) => CanVirtualize && resetSpawners.Add(id);

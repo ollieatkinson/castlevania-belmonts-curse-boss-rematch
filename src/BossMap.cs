@@ -12,8 +12,14 @@ internal static class BossMap
     internal static bool CanShow(LevelMapCharacterItem item)
     {
         if (!Plugin.Ready || !Plugin.ShowBossIcons.Value || !item || !item.linkedCharacter
-            || !Encounters.Supported.ContainsKey(item.itemWorldRoomId) || Session.Current != null
+            || Session.Current != null
             || !MainCharacterSingleton.TryGetEntity(out var player) || !player) return false;
+        if (item.itemWorldRoomId == NotreDameTrials.Hall)
+            return item.linkedCharacter.guid == NotreDameTrials.CursedRose && NotreDameTrials.CanTravel;
+        // The hall's existing portrait is the one shared destination for the
+        // four trials and Cursed Rose, outside their isolated challenge rooms.
+        if (!Encounters.Supported.ContainsKey(item.itemWorldRoomId)
+            || item.itemWorldRoomId == NotreDameTrials.Supported[^1].RoomId) return false;
         var progression = MainCharacterSingleton.GetComponent<CharacterProgressionComponent>();
         return progression && progression.GetProgressionStep(item.linkedCharacter) == CharacterProgressionStep.Absorbed
             && WasVisited(item.itemWorldRoomId);
@@ -37,7 +43,8 @@ internal static class BossMap
         if (!world) return null;
         foreach (var room in world.GetRooms())
             if (room.id == item.itemWorldRoomId)
-                return new(room.id, Encounters.Supported[room.id].Label, item.linkedCharacter!.guid, level!.guid,
+                return new(room.id, room.id == NotreDameTrials.Hall ? "Notre-Dame challenges" : Encounters.Supported[room.id].Label,
+                    item.linkedCharacter!.guid, level!.guid,
                     RoomDesignerExtensions.GetRoomCenterPosition(room));
         return null;
     }
@@ -45,7 +52,10 @@ internal static class BossMap
     internal static bool CanTravel(ArenaDestination destination)
     {
         if (!Plugin.ArenaFastTravel.Value || !Plugin.ShowBossIcons.Value || Session.Current != null || Session.Pending != null
-            || !Encounters.Supported.ContainsKey(destination.RoomId) || !WasVisited(destination.RoomId)) return false;
+            || !WasVisited(destination.RoomId)) return false;
+        if (destination.RoomId == NotreDameTrials.Hall)
+            return destination.CharacterGuid == NotreDameTrials.CursedRose && NotreDameTrials.CanTravel;
+        if (!Encounters.Supported.ContainsKey(destination.RoomId)) return false;
         var progression = MainCharacterSingleton.GetComponent<CharacterProgressionComponent>();
         if (!progression) return false;
         foreach (var pair in progression.characterProgressionSteps)
@@ -141,7 +151,7 @@ internal static class BossMapTravelPrompt
         wasEnabled = text.enabled;
         previous = text.textDisplay.text;
         text.enabled = false;
-        text.textDisplay.text = "Travel to arena";
+        text.textDisplay.text = __0?.itemWorldRoomId == NotreDameTrials.Hall ? "Travel to challenge hall" : "Travel to arena";
         var view = __1 ? __instance.hasInteractFootnoteInitBooleanView : __instance.hasInteractFootnoteBooleanView;
         if (view) view.SetBool(true);
     }

@@ -1,5 +1,6 @@
 using MotherBase.ApplicationFlowManager;
 using MotherBase.RoomDesigner;
+using RedWine.ResourceManagement;
 using UnityEngine;
 
 namespace BossRematch;
@@ -27,6 +28,11 @@ internal sealed class Session
     private readonly ArenaTravelGate returnGate = new();
     private bool graphPrepared;
     private bool started;
+    private bool trialHallReady;
+    private bool trialDoorEntered;
+    private bool trialArrived;
+    private bool trialCompleted;
+    private readonly ArenaTravelGate trialGate = new();
     private BossFight? awaitingFight;
     private float startDeadline;
     internal CutsceneDirector? Director;
@@ -37,8 +43,9 @@ internal sealed class Session
         this.position = position;
         this.level = level;
         this.slot = slot;
-        State.Characters[target.Boss.characterID.guid] = (int)CharacterProgressionStep.Found;
-        if (target.Boss.defeatedProgressionKey)
+        if (target.Trial is { IsBoss: false }) State.Virtues[target.CharacterGuid] = false;
+        else State.Characters[target.CharacterGuid] = (int)CharacterProgressionStep.Found;
+        if (target.Boss && target.Boss!.defeatedProgressionKey)
             State.Keys[target.Boss.defeatedProgressionKey.guid] = false;
         startDeadline = Time.realtimeSinceStartup + 45;
     }
@@ -56,9 +63,10 @@ internal sealed class Session
     internal static void Request(Encounter target)
     {
         if (Current != null || Pending != null || ArenaTravel.Busy || !IsGameplay()) return;
-        var current = Encounters.Find();
-        if (current == null || current.RoomId != target.RoomId) return;
-        using (var validation = new ReplayGraph()) validation.Build(current.Director.ResolverData, current.Branch);
+        var current = Encounters.Find(key: target.Key);
+        if (current == null || !NotreDameTrials.Equipped(current)) return;
+        if (current.Trial == null)
+            using (var validation = new ReplayGraph()) validation.Build(current.Director!.ResolverData, current.Branch);
         Pending = current;
         checkpointWritten = false;
         pendingSaveName = SaveLogic.FormatSaveNameFromIndex(SaveLogic.Get().GetCurrentSaveIndex());
@@ -95,8 +103,8 @@ internal sealed class Session
             {
                 var target = Pending;
                 Pending = null;
-                var current = Encounters.Find();
-                if (current == null || current.RoomId != target.RoomId) return;
+                var current = Encounters.Find(key: target.Key);
+                if (current == null || !NotreDameTrials.Equipped(current)) return;
                 var player = MainCharacterSingleton.GetEntity();
                 var session = new Session(current, player.transform.position, LevelManager.Get().currentLevelVariable.CurrentValue,
                     SaveLogic.Get().GetCurrentSaveIndex());
@@ -107,9 +115,16 @@ internal sealed class Session
         }
         var active = Current;
         if (active == null || ApplicationFlowManager.IsLoading) return;
+        if (active.Target.Trial != null && active.trialArrived
+            && MainCharacterSingleton.GetComponent<CurrentRoomInstance>()?.currentRoom?.worldRoomData.id != active.Target.FightRoomId
+            && !MainCharacterSingleton.GetEntity().HasComponentData<EnteredZDoor>()) active.RequestReturn();
         if (active.returnRequested)
         {
             active.TickReturn();
+        }
+        else if (active.Target.Trial != null && !active.trialArrived)
+        {
+            active.TickTrialEntry();
         }
         else if (active.awaitingFight && active.awaitingFight!._currentBossVariable
             && active.awaitingFight._currentBossVariable.CurrentValue)
@@ -160,6 +175,15 @@ internal sealed class Session
             Release();
             return;
         }
+        if (Target.Trial != null)
+        {
+            var hall = MainCharacterSingleton.GetComponent<CurrentRoomInstance>()?.currentRoom;
+            if (!hall || hall!.worldRoomData.id != NotreDameTrials.Hall)
+            { RequestReturn(); return; }
+            trialHallReady = true;
+            startDeadline = Time.realtimeSinceStartup + 45;
+            return;
+        }
         var room = MainCharacterSingleton.GetComponent<CurrentRoomInstance>()?.currentRoom;
         if (!room || room!.worldRoomData.id != Target.RoomId || !graphPrepared)
         {
@@ -176,12 +200,30 @@ internal sealed class Session
     {
         if (!State.CanVirtualize || director.ResolverData?.name != Target.ResolverName) return;
         var room = director.GetComponentInParent<RoomInstance>();
-        if (!room || room.worldRoomData.id != Target.RoomId) return;
+        if (!room || room.worldRoomData.id != Target.FightRoomId) return;
         if (graphPrepared) throw new InvalidOperationException("The replay director was initialized twice.");
-        var branch = Encounters.FindBranch(director.ResolverData, Target.Boss.characterID);
-        var clone = graph.Build(director.ResolverData, branch);
         Director = director;
-        director.ResolverData = clone;
+        var branch = Target.Branch;
+        if (Target.Trial is { IsBoss: false })
+        {
+            if (Target.Trial.DoorId == 300) director.ResolverData = graph.BuildStrengthTrial(director.ResolverData);
+            // The other courses only have an optional introductory line. Their
+            // mechanics, cameras, restrictions and validation stay native.
+        }
+        else
+        {
+            var boss = Target.Boss;
+            if (!boss)
+            {
+                var fights = room.GetComponentsInChildren<BossFight>(true);
+                if (fights.Length != 1) throw new InvalidOperationException("The trial boss is ambiguous.");
+                boss = ResourceManager.LoadAssetByRef<BossData>(ResourceContext.Room, fights[0]._bossDataRef);
+            }
+            if (!boss || !boss!.characterID || boss.characterID.guid != Target.CharacterGuid)
+                throw new InvalidOperationException("The trial boss does not match the chosen memory.");
+            branch = Encounters.FindBranch(director.ResolverData, boss.characterID);
+            director.ResolverData = graph.Build(director.ResolverData, branch);
+        }
         graphPrepared = true;
         Plugin.Logger.LogInfo($"Created private replay graph: {Target.ResolverName}, branch={branch}.");
     }
@@ -190,13 +232,15 @@ internal sealed class Session
     {
         if (!State.CanVirtualize) return true;
         var room = director.GetComponentInParent<RoomInstance>();
-        return !room || room.worldRoomData.id != Target.RoomId || (Director && director == Director);
+        if (!room) return true;
+        if (Target.Trial != null && room.worldRoomData.id == NotreDameTrials.Hall) return false;
+        return room.worldRoomData.id != Target.FightRoomId || (Director && director == Director);
     }
 
     internal bool Owns(BossFight fight)
     {
         var room = fight.GetComponentInParent<RoomInstance>();
-        return State.CanVirtualize && room && room.worldRoomData.id == Target.RoomId;
+        return State.CanVirtualize && room && room.worldRoomData.id == Target.FightRoomId;
     }
 
 
@@ -205,17 +249,17 @@ internal sealed class Session
         if (!State.CanVirtualize) return false;
         var spawner = source.TryCast<MobsSpawner>();
         var room = source.GetComponentInParent<RoomInstance>();
-        if (spawner == null || !spawner || room == null || !room || room.worldRoomData.id != Target.RoomId
-            || spawner.mobsToSpawn == null || spawner.mobsToSpawn.Count != 1) return false;
-        var boss = spawner.mobsToSpawn[0].mobData?.TryCast<BossData>();
-        if (boss == null || !boss || !boss.characterID || boss.characterID.guid != Target.Boss.characterID.guid
-            || !State.TryPrepareSpawner(spawner.GetInstanceID())) return false;
+        if (spawner == null || !spawner || room == null || !room || room.worldRoomData.id != Target.FightRoomId
+            || spawner.mobsToSpawn == null || spawner.mobsToSpawn.Count == 0) return false;
+        var boss = spawner.mobsToSpawn.Count == 1 ? spawner.mobsToSpawn[0].mobData?.TryCast<BossData>() : null;
+        var matchingBoss = boss && boss!.characterID && boss.characterID.guid == Target.CharacterGuid;
+        if ((!matchingBoss && Target.Trial == null) || !State.TryPrepareSpawner(spawner.GetInstanceID())) return false;
+        if (matchingBoss && boss!.defeatedProgressionKey) State.Keys[boss.defeatedProgressionKey.guid] = false;
         // The native initializer restores only surviving mobs when HasSpawned
         // is set. A completed save therefore restores no boss. A full reset
         // selects SpawnInit for this single matching boss spawner instead.
         spawner.ignoreForcedFullReset = false;
-        var progression = MainCharacterSingleton.GetComponent<CharacterProgressionComponent>();
-        Plugin.Logger.LogInfo($"Resetting replay boss spawner: {Target.Label}, previouslySpawned={spawner.persistentData.HasSpawned}, initialized={spawner.initialized}, spawned={spawner.spawnedMobsCount}, initial={spawner.initialySpawnedMobsCount}, progression={progression?.GetProgressionStep(boss.characterID)}.");
+        Plugin.Logger.LogInfo($"Resetting replay spawner: {Target.Label}, previouslySpawned={spawner.persistentData.HasSpawned}, initialized={spawner.initialized}, spawned={spawner.spawnedMobsCount}, initial={spawner.initialySpawnedMobsCount}, boss={matchingBoss}.");
         return true;
     }
 
@@ -256,6 +300,48 @@ internal sealed class Session
         returnGate.Reset();
     }
 
+    private void TickTrialEntry()
+    {
+        if (Time.realtimeSinceStartup > startDeadline)
+        {
+            ReplayUI.Notice("The challenge did not open. Returning to the challenge hall.");
+            RequestReturn();
+            return;
+        }
+        var room = MainCharacterSingleton.GetComponent<CurrentRoomInstance>()?.currentRoom;
+        if (!room) return;
+        if (trialDoorEntered && room!.worldRoomData.id == Target.FightRoomId)
+        {
+            if (!graphPrepared || !trialGate.CanStart(IsGameplay(), Time.realtimeSinceStartup, Time.frameCount)) return;
+            trialArrived = true;
+            State.Arrived();
+            started = Target.Trial!.DoorId != 300 && !Target.Trial.IsBoss;
+            startDeadline = Time.realtimeSinceStartup + 45;
+            Plugin.Logger.LogInfo($"Challenge loaded: {Target.Label}; room={Target.FightRoomId}.");
+            return;
+        }
+        if (!trialHallReady || trialDoorEntered || room!.worldRoomData.id != NotreDameTrials.Hall
+            || !trialGate.CanStart(IsGameplay(), Time.realtimeSinceStartup, Time.frameCount)) return;
+        if (!NotreDameTrials.Equipped(Target with { Room = room })) { RequestReturn(); return; }
+        var door = NotreDameTrials.Door(room, Target.Trial!);
+        if (!door) { RequestReturn(); return; }
+        trialDoorEntered = true;
+        trialGate.Reset();
+        door!.OnPlayerInteract(MainCharacterSingleton.GetEntity());
+        Plugin.Logger.LogInfo($"Entering challenge through its authored portal: {Target.Label}, door={door.id}.");
+    }
+
+    internal void TrialCompleted()
+    {
+        if (trialCompleted) return;
+        trialCompleted = true;
+        // The bell grants its virtue at frame zero, then teleports the player
+        // at frame 30. Let that native action remove its reaction affect and
+        // finish the portal transition before the hall checkpoint is restored.
+        // Tick observes departure from the course for both victory and exits.
+        Plugin.Logger.LogInfo($"Challenge completed: {Target.Label}. Waiting for the native return to the hall.");
+    }
+
     private void TickReturn()
     {
         var ui = UIManager.GetInstance();
@@ -278,7 +364,9 @@ internal sealed class Session
             return;
         }
         closingReturnMenu = false;
-        var ready = !ui.confirmationPopup || !ui.confirmationPopup.visible;
+        var player = MainCharacterSingleton.GetEntity();
+        var ready = (!ui.confirmationPopup || !ui.confirmationPopup.visible)
+            && !player.HasComponentData<EnteredZDoor>();
         if (!returnPrepared)
         {
             if (!returnGate.CanStart(ready, Time.realtimeSinceStartup, Time.frameCount)) return;
