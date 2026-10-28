@@ -40,6 +40,7 @@ internal sealed class ReplayGraph : IDisposable
             outros++;
             return clone;
         }
+        if (source.name == "BossIntro") RewriteIntro(clone);
         for (var i = 0; i < clone.Nodes.Length; i++)
         {
             var node = clone.Nodes[i];
@@ -55,6 +56,25 @@ internal sealed class ReplayGraph : IDisposable
                 clone.Nodes[i] = new ResolverStartNodeData { NextNodes = node.NextNodes };
         }
         return clone;
+    }
+
+    private static void RewriteIntro(CutsceneResolverData graph)
+    {
+        // Speaking to the Echo already starts the encounter. The normal intro
+        // waits for an entrance crossing that a player loaded inside the arena
+        // may never make, leaving pre-intro camera settings active indefinitely.
+        // Keep the authored intro, setup, fight start and completion wait.
+        var nodes = graph.Nodes;
+        if (nodes.Length != 8 || graph.StartIndexes.Length != 1 || graph.StartIndexes[0] != 0
+            || nodes[0].TryCast<ResolverStartNodeData>() == null
+            || nodes[1].TryCast<ResolverActivateTriggerNodeData>() == null
+            || nodes[2].TryCast<ResolverConditionHasWatchedCutsceneNodeData>() == null
+            || nodes[4].TryCast<ResolverStartBossFightNodeData>() == null
+            || nodes[6].TryCast<ResolverWaitForProgressionKeyNodeData>() == null
+            || nodes[0].NextNodes.Length != 1 || nodes[0].NextNodes[0] != 1
+            || nodes[1].NextNodes.Length != 1 || nodes[1].NextNodes[0] != 2)
+            throw new InvalidOperationException("BossIntro layout differs from the audited game build.");
+        nodes[0].NextNodes = new[] { 2 };
     }
 
     private static void RewriteOutro(CutsceneResolverData graph)

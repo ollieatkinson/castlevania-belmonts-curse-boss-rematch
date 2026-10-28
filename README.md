@@ -46,7 +46,7 @@ Set either option to `false` to disable it, then restart the game. Mirror Fast T
 
 The mod saves a checkpoint before a rematch. Repeat boss rewards and story progression are suppressed, and saving is paused during the fight. Winning reloads that checkpoint at your arena position, restoring health, resources and temporary pickups. Death or another level transition ends the replay and uses the game’s normal destination.
 
-Isaac’s spawn and fight start have been checked in game alongside Ultrawide, Map Secrets and Mirror Fast Travel. Other bosses and full victory/return paths still need playtesting. Back up your save before using the mod.
+Leon’s intro, camera, fight, victory and return to the cleared arena have been checked in game. Isaac’s spawn and fight start have also been checked alongside Ultrawide, Map Secrets and Mirror Fast Travel. Other bosses still need playtesting. Back up your save before using the mod.
 
 Supports Steam build **25975867 / game version 1.1.3**. Other game binaries disable the mod at startup. If something fails, include `BepInEx/LogOutput.log` when reporting it.
 

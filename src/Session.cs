@@ -22,6 +22,9 @@ internal sealed class Session
     private bool ownsForcePosition;
     private bool expectedLoad;
     private bool returnRequested;
+    private bool returnPrepared;
+    private bool closingReturnMenu;
+    private readonly ArenaTravelGate returnGate = new();
     private bool graphPrepared;
     private bool started;
     private BossFight? awaitingFight;
@@ -106,8 +109,7 @@ internal sealed class Session
         if (active == null || ApplicationFlowManager.IsLoading) return;
         if (active.returnRequested)
         {
-            active.returnRequested = false;
-            active.ReturnToCheckpoint();
+            active.TickReturn();
         }
         else if (active.awaitingFight && active.awaitingFight!._currentBossVariable
             && active.awaitingFight._currentBossVariable.CurrentValue)
@@ -245,7 +247,54 @@ internal sealed class Session
         RequestReturn();
     }
 
-    internal void RequestReturn() => returnRequested = true;
+    internal void RequestReturn()
+    {
+        if (returnRequested) return;
+        returnRequested = true;
+        returnPrepared = false;
+        closingReturnMenu = false;
+        returnGate.Reset();
+    }
+
+    private void TickReturn()
+    {
+        var ui = UIManager.GetInstance();
+        if (!ui || !ui.TryGetMenuManager(out var menu) || !menu)
+        {
+            returnGate.Reset();
+            return;
+        }
+        if (menu.IsShowing())
+        {
+            // A timeout can occur while the player is looking at the map.
+            // Unloading beneath that menu can pop the wrong game state and
+            // leave the next camera at its prefab position.
+            if (!closingReturnMenu)
+            {
+                closingReturnMenu = true;
+                menu.Close();
+            }
+            returnGate.Reset();
+            return;
+        }
+        closingReturnMenu = false;
+        var ready = !ui.confirmationPopup || !ui.confirmationPopup.visible;
+        if (!returnPrepared)
+        {
+            if (!returnGate.CanStart(ready, Time.realtimeSinceStartup, Time.frameCount)) return;
+            // End our native cutscene players while their actors and cameras
+            // still exist, before the level load pushes its own game state.
+            if (Director && Director!._resolver != null) Director.ForceEnd();
+            returnPrepared = true;
+            returnGate.Reset();
+            Plugin.Logger.LogInfo($"Replay return prepared: {Target.Label}; waiting for settled gameplay.");
+            return;
+        }
+        if (!returnGate.CanStart(ready && IsGameplay(), Time.realtimeSinceStartup, Time.frameCount)) return;
+        returnRequested = false;
+        returnGate.Reset();
+        ReturnToCheckpoint();
+    }
 
     private void ReturnToCheckpoint()
     {
