@@ -1,0 +1,7 @@
+# Build output and release packages
+bin/
+obj/
+dist/
+
+# Local SDK, game analysis, logs and backups
+.build/

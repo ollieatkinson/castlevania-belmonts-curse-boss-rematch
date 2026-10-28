@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>BossRematch</AssemblyName>
+    <Version>0.3.3</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/**/*.cs" />
+    <Reference Include="$(GamePath)/BepInEx/core/BepInEx.Core.dll" Private="false" />
+    <Reference Include="$(GamePath)/BepInEx/core/BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="$(GamePath)/BepInEx/core/0Harmony.dll" Private="false" />
+    <Reference Include="$(GamePath)/BepInEx/core/Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(GamePath)/BepInEx/interop/*.dll" Private="false" />
+  </ItemGroup>
+  <Target Name="GeneratePluginVersion" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <PluginVersionFile>$(IntermediateOutputPath)PluginVersion.g.cs</PluginVersionFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(PluginVersionFile)"
+                      Lines="namespace BossRematch { internal static class BuildInfo { internal const string Version = &quot;$(Version)&quot;%3B } }"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(PluginVersionFile)" />
+    </ItemGroup>
+  </Target>
+  <Target Name="CheckGamePath" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(GamePath)/BepInEx/interop/Assembly-CSharp.dll')"
+           Text="Set GamePath to the game directory after running BepInEx once." />
+  </Target>
+  <Target Name="Package" DependsOnTargets="Build">
+    <PropertyGroup>
+      <PackageRoot>$(BaseIntermediateOutputPath)package/</PackageRoot>
+      <PluginArchive>dist/$(AssemblyName)-v$(Version).zip</PluginArchive>
+    </PropertyGroup>
+    <RemoveDir Directories="$(PackageRoot)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageRoot)BepInEx/plugins" />
+    <Copy SourceFiles="README.md;LICENSE" DestinationFolder="$(PackageRoot)BossRematch" />
+    <ItemGroup>
+      <Screenshot Include="docs/screenshots/*.png" />
+    </ItemGroup>
+    <Copy SourceFiles="@(Screenshot)" DestinationFolder="$(PackageRoot)BossRematch/docs/screenshots" />
+    <MakeDir Directories="dist" />
+    <ZipDirectory SourceDirectory="$(PackageRoot)" DestinationFile="$(PluginArchive)" Overwrite="true" />
+    <GetFileHash Files="$(PluginArchive)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="PluginArchiveHash" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(PluginArchive).sha256"
+                      Lines="%(PluginArchiveHash.FileHash)  $(AssemblyName)-v$(Version).zip"
+                      Overwrite="true" />
+  </Target>
+</Project>
