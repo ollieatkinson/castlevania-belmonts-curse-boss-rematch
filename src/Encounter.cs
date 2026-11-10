@@ -22,7 +22,7 @@ internal static class Encounters
             Plugin.Logger.LogWarning($"Disabled incompatible encounter for this game session: {target.Label}. {error.Message}");
     }
 
-    // Authored encounter graphs inspected on Steam build 25975867. Endings and
+    // Authored encounter graphs inspected on Steam build 26485918. Endings and
     // non-combat "FakeBossFight" scenes have different lifecycles.
     internal static readonly Dictionary<string, (string Label, string Resolver)> Supported = new()
     {
